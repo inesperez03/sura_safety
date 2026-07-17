@@ -10,9 +10,6 @@ BT_REGISTER_NODES(factory)
   factory.registerNodeType<sura_safety::SafetyWarning>(
     "SafetyWarning");
 
-  factory.registerNodeType<sura_safety::EmergencyWrench>(
-    "EmergencyWrench");
-
   factory.registerNodeType<sura_safety::SafetyOk>(
     "SafetyOk");
 }

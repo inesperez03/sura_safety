@@ -9,11 +9,11 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(behaviortree_cpp_v3 REQUIRED)
-find_package(sura_msgs REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/diagnostics_monitor.cpp
   src/limits_safety_nodes.cpp
+  src/safety_blackboard.cpp
   src/register_nodes.cpp
 )
 
@@ -32,17 +32,11 @@ ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   diagnostic_msgs
   behaviortree_cpp_v3
-  sura_msgs
 )
 
 install(
   DIRECTORY include/
   DESTINATION include
-)
-
-install(
-  DIRECTORY trees
-  DESTINATION share/${PROJECT_NAME}
 )
 
 install(
@@ -59,7 +53,6 @@ ament_export_dependencies(
   rclcpp
   diagnostic_msgs
   behaviortree_cpp_v3
-  sura_msgs
 )
 
 ament_package()

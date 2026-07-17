@@ -1,59 +1,201 @@
 #include "sura_safety/limits_safety_nodes.hpp"
 
-#include <algorithm>
-#include <cmath>
-#include <cstdlib>
-#include <functional>
-
 namespace sura_safety
 {
 namespace
 {
 
-std::string stripSlashes(std::string value)
+void appendSummaryValue(
+  std::string & summary,
+  const std::string & key,
+  const std::string & value)
 {
-  while (!value.empty() && value.front() == '/')
+  if (value.empty())
   {
-    value.erase(value.begin());
+    return;
   }
-  while (!value.empty() && value.back() == '/')
+
+  if (!summary.empty())
   {
-    value.pop_back();
+    summary += " ";
   }
-  return value;
+
+  summary += key + "=" + value;
 }
 
-std::string namespacedTopic(const std::string & robot_namespace, const std::string & suffix)
+std::string safetyValueSummary(
+  const DiagnosticsMonitor & monitor,
+  const std::string & diagnostic_name)
 {
-  const auto normalized_namespace = stripSlashes(robot_namespace);
-  const auto normalized_suffix = stripSlashes(suffix);
+  std::string summary;
 
-  if (normalized_namespace.empty())
+  appendSummaryValue(
+    summary, "current_depth",
+    monitor.getValue(diagnostic_name, "current_depth"));
+  appendSummaryValue(
+    summary, "max_depth",
+    monitor.getValue(diagnostic_name, "max_depth"));
+  appendSummaryValue(
+    summary, "remaining_depth_margin",
+    monitor.getValue(diagnostic_name, "remaining_depth_margin"));
+  appendSummaryValue(
+    summary, "current_altitude",
+    monitor.getValue(diagnostic_name, "current_altitude"));
+  appendSummaryValue(
+    summary, "min_altitude",
+    monitor.getValue(diagnostic_name, "min_altitude"));
+  appendSummaryValue(
+    summary, "remaining_altitude_margin",
+    monitor.getValue(diagnostic_name, "remaining_altitude_margin"));
+  appendSummaryValue(
+    summary, "current_x",
+    monitor.getValue(diagnostic_name, "current_x"));
+  appendSummaryValue(
+    summary, "current_y",
+    monitor.getValue(diagnostic_name, "current_y"));
+  appendSummaryValue(
+    summary, "leak_detected",
+    monitor.getValue(diagnostic_name, "leak_detected"));
+  appendSummaryValue(
+    summary, "has_state",
+    monitor.getValue(diagnostic_name, "has_state"));
+  appendSummaryValue(
+    summary, "age_seconds",
+    monitor.getValue(diagnostic_name, "age_seconds"));
+  appendSummaryValue(
+    summary, "stale_timeout",
+    monitor.getValue(diagnostic_name, "stale_timeout"));
+  appendSummaryValue(
+    summary, "voltage",
+    monitor.getValue(diagnostic_name, "voltage"));
+  appendSummaryValue(
+    summary, "current_draw_a",
+    monitor.getValue(diagnostic_name, "current_draw_a"));
+  appendSummaryValue(
+    summary, "percentage",
+    monitor.getValue(diagnostic_name, "percentage"));
+  appendSummaryValue(
+    summary, "present",
+    monitor.getValue(diagnostic_name, "present"));
+  appendSummaryValue(
+    summary, "frequency_hz",
+    monitor.getValue(diagnostic_name, "frequency_hz"));
+  appendSummaryValue(
+    summary, "sample_count",
+    monitor.getValue(diagnostic_name, "sample_count"));
+  appendSummaryValue(
+    summary, "warn_min_frequency_hz",
+    monitor.getValue(diagnostic_name, "warn_min_frequency_hz"));
+  appendSummaryValue(
+    summary, "error_min_frequency_hz",
+    monitor.getValue(diagnostic_name, "error_min_frequency_hz"));
+
+  if (summary.empty())
   {
-    return "/" + normalized_suffix;
+    return "values=unknown";
   }
 
-  return "/" + normalized_namespace + "/" + normalized_suffix;
+  return summary;
 }
 
-std::optional<double> parseDouble(const std::string & text)
+std::string diagnosticName(
+  const BT::NodeConfiguration & config,
+  const std::string & diagnostic_suffix)
 {
-  char * end = nullptr;
-  const double value = std::strtod(text.c_str(), &end);
+  const std::string diagnostic_prefix =
+    config.blackboard->get<std::string>("diagnostic_prefix");
 
-  if (end == text.c_str() || *end != '\0' || !std::isfinite(value))
+  return diagnostic_prefix + "/Navigation/ Navigation " + diagnostic_suffix;
+}
+
+std::string diagnosticNameFromNodeName(
+  const BT::NodeConfiguration & config,
+  const std::string & node_name)
+{
+  const std::string diagnostic_prefix =
+    config.blackboard->get<std::string>("diagnostic_prefix");
+
+  if (node_name.find("leak") != std::string::npos)
   {
-    return std::nullopt;
+    return diagnostic_prefix + "/Sensors/ Sensors LeakSensors";
   }
 
-  return value;
+  if (node_name.find("battery") != std::string::npos)
+  {
+    return diagnostic_prefix + "/Sensors/ Sensors Battery";
+  }
+
+  if (node_name.find("imu") != std::string::npos)
+  {
+    return diagnostic_prefix + "/Sensors/ Sensors IMU";
+  }
+
+  if (node_name.find("localization") != std::string::npos)
+  {
+    return diagnosticName(config, "Frequency");
+  }
+
+  if (node_name.find("altitude") != std::string::npos)
+  {
+    return diagnosticName(config, "AltitudeLimit");
+  }
+
+  if (node_name.find("area") != std::string::npos)
+  {
+    return diagnosticName(config, "AreaLimit");
+  }
+
+  return diagnosticName(config, "DepthLimit");
 }
 
-double yawFromQuaternion(const geometry_msgs::msg::Quaternion & q)
+bool staleCountsAsError(const std::string & node_name)
 {
-  const double siny_cosp = 2.0 * (q.w * q.z + q.x * q.y);
-  const double cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
-  return std::atan2(siny_cosp, cosy_cosp);
+  return node_name.find("leak") != std::string::npos ||
+         node_name.find("battery") != std::string::npos ||
+         node_name.find("imu") != std::string::npos ||
+         node_name.find("localization") != std::string::npos;
+}
+
+BT::NodeStatus safetyWarningTick(
+  const BT::NodeConfiguration & config,
+  const std::string & diagnostic_suffix)
+{
+  const auto monitor =
+    config.blackboard->get<std::shared_ptr<DiagnosticsMonitor>>(
+      "diagnostics_monitor");
+  const auto ros_node =
+    config.blackboard->get<rclcpp::Node::SharedPtr>("ros_node");
+  const auto name = diagnosticName(config, diagnostic_suffix);
+
+  if (monitor->isWarn(name))
+  {
+    const auto value_summary = safetyValueSummary(*monitor, name);
+
+    RCLCPP_WARN(
+      ros_node->get_logger(),
+      "[sura_safety] Safety WARNING. diagnostic=%s %s",
+      name.c_str(),
+      value_summary.c_str());
+
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  return BT::NodeStatus::FAILURE;
+}
+
+std::string warningDiagnosticSuffixFromNodeName(const std::string & node_name)
+{
+  if (node_name.find("altitude") != std::string::npos)
+  {
+    return "AltitudeLimit";
+  }
+
+  if (node_name.find("area") != std::string::npos)
+  {
+    return "AreaLimit";
+  }
+
+  return "DepthLimit";
 }
 
 }  // namespace
@@ -94,48 +236,30 @@ SafetyError::SafetyError(
 
 BT::PortsList SafetyError::providedPorts()
 {
-  return {
-    BT::InputPort<rclcpp::Node::SharedPtr>("ros_node"),
-    BT::InputPort<std::string>("diagnostic_prefix"),
-    BT::InputPort<std::shared_ptr<DiagnosticsMonitor>>("diagnostics_monitor"),
-    BT::InputPort<std::string>("diagnostic_name"),
-    BT::InputPort<std::string>("diagnostic_suffix")
-  };
+  return {};
 }
 
 BT::NodeStatus SafetyError::tick()
 {
   const auto monitor = getMonitor(config());
   const auto ros_node = getRosNode(config());
-  auto diagnostic_name = getInput<std::string>("diagnostic_name");
-  if (!diagnostic_name)
+  const auto diagnostic_name = diagnosticNameFromNodeName(config(), name());
+  const auto status = monitor->getStatus(diagnostic_name);
+  const bool safety_error = status &&
+    (status->level == diagnostic_msgs::msg::DiagnosticStatus::ERROR ||
+     (staleCountsAsError(name()) &&
+      status->level == diagnostic_msgs::msg::DiagnosticStatus::STALE));
+
+  if (safety_error)
   {
-    auto diagnostic_suffix = getInput<std::string>("diagnostic_suffix");
-    if (!diagnostic_suffix)
-    {
-      diagnostic_suffix = "DepthLimit";
-    }
-
-    const std::string diagnostic_prefix =
-      config().blackboard->get<std::string>("diagnostic_prefix");
-    diagnostic_name =
-      diagnostic_prefix + "/Navigation/ Navigation " + diagnostic_suffix.value();
-  }
-
-  if (monitor->isErrorOrStale(diagnostic_name.value()))
-  {
-    const auto current_depth =
-      monitor->getValue(diagnostic_name.value(), "current_depth", "unknown");
-
-    const auto max_depth =
-      monitor->getValue(diagnostic_name.value(), "max_depth", "unknown");
+    const auto value_summary =
+      safetyValueSummary(*monitor, diagnostic_name);
 
     RCLCPP_ERROR(
       ros_node->get_logger(),
-      "[sura_safety] Safety ERROR/STALE. diagnostic=%s current_depth=%s max_depth=%s",
-      diagnostic_name.value().c_str(),
-      current_depth.c_str(),
-      max_depth.c_str());
+      "[sura_safety] Safety ERROR/STALE. diagnostic=%s %s",
+      diagnostic_name.c_str(),
+      value_summary.c_str());
 
     return BT::NodeStatus::SUCCESS;
   }
@@ -157,280 +281,14 @@ SafetyWarning::SafetyWarning(
 
 BT::PortsList SafetyWarning::providedPorts()
 {
-  return {
-    BT::InputPort<rclcpp::Node::SharedPtr>("ros_node"),
-    BT::InputPort<std::string>("diagnostic_prefix"),
-    BT::InputPort<std::shared_ptr<DiagnosticsMonitor>>("diagnostics_monitor"),
-    BT::InputPort<std::string>("diagnostic_name"),
-    BT::InputPort<std::string>("diagnostic_suffix")
-  };
+  return {};
 }
 
 BT::NodeStatus SafetyWarning::tick()
 {
-  const auto monitor = getMonitor(config());
-  const auto ros_node = getRosNode(config());
-  auto diagnostic_name = getInput<std::string>("diagnostic_name");
-  if (!diagnostic_name)
-  {
-    auto diagnostic_suffix = getInput<std::string>("diagnostic_suffix");
-    if (!diagnostic_suffix)
-    {
-      diagnostic_suffix = "DepthLimit";
-    }
-
-    const std::string diagnostic_prefix =
-      config().blackboard->get<std::string>("diagnostic_prefix");
-    diagnostic_name =
-      diagnostic_prefix + "/Navigation/ Navigation " + diagnostic_suffix.value();
-  }
-
-  if (monitor->isWarn(diagnostic_name.value()))
-  {
-    const auto current_depth =
-      monitor->getValue(diagnostic_name.value(), "current_depth", "unknown");
-
-    const auto remaining_margin =
-      monitor->getValue(diagnostic_name.value(), "remaining_depth_margin", "unknown");
-
-    RCLCPP_WARN(
-      ros_node->get_logger(),
-      "[sura_safety] Safety WARNING. diagnostic=%s current_depth=%s remaining_depth_margin=%s",
-      diagnostic_name.value().c_str(),
-      current_depth.c_str(),
-      remaining_margin.c_str());
-
-    return BT::NodeStatus::SUCCESS;
-  }
-
-  return BT::NodeStatus::FAILURE;
-}
-
-
-// =======================================================
-// EmergencyWrench
-// =======================================================
-
-EmergencyWrench::EmergencyWrench(
-  const std::string & name,
-  const BT::NodeConfiguration & config)
-: BT::SyncActionNode(name, config)
-{
-  const auto ros_node = getRosNode(config);
-  const auto robot_namespace =
-    config.blackboard->get<std::string>("robot_namespace");
-
-  wrench_pub_ = ros_node->create_publisher<WrenchCommand>(
-    namespacedTopic(robot_namespace, "controller/arbitrator/wrench"),
-    rclcpp::SystemDefaultsQoS());
-
-  navigator_sub_ = ros_node->create_subscription<Navigator>(
-    namespacedTopic(robot_namespace, "navigator/navigation"),
-    rclcpp::SystemDefaultsQoS(),
-    std::bind(&EmergencyWrench::navigatorCallback, this, std::placeholders::_1));
-}
-
-BT::PortsList EmergencyWrench::providedPorts()
-{
-  return {
-    BT::InputPort<std::string>("reason"),
-    BT::InputPort<rclcpp::Node::SharedPtr>("ros_node"),
-    BT::InputPort<std::string>("controller"),
-    BT::InputPort<int>("priority"),
-    BT::InputPort<double>("force_x"),
-    BT::InputPort<double>("force_y"),
-    BT::InputPort<double>("force_z"),
-    BT::InputPort<bool>("area_recovery"),
-    BT::InputPort<double>("area_recovery_force"),
-    BT::InputPort<std::string>("diagnostic_name"),
-    BT::InputPort<std::string>("diagnostic_suffix")
-  };
-}
-
-BT::NodeStatus EmergencyWrench::tick()
-{
-  const auto ros_node = getRosNode(config());
-
-  auto reason = getInput<std::string>("reason");
-
-  if (!reason)
-  {
-    reason = "unknown";
-  }
-
-  auto controller = getInput<std::string>("controller");
-  if (!controller)
-  {
-    controller = "body_force";
-  }
-
-  auto priority = getInput<int>("priority");
-  if (!priority)
-  {
-    priority = 85;
-  }
-
-  auto force_x = getInput<double>("force_x");
-  if (!force_x)
-  {
-    force_x = 0.0;
-  }
-
-  auto force_y = getInput<double>("force_y");
-  if (!force_y)
-  {
-    force_y = 0.0;
-  }
-
-  auto force_z = getInput<double>("force_z");
-  if (!force_z)
-  {
-    force_z = 0.0;
-  }
-
-  auto area_recovery = getInput<bool>("area_recovery");
-  if (area_recovery && area_recovery.value())
-  {
-    const auto area_force = computeAreaRecoveryForce();
-
-    if (!area_force)
-    {
-      RCLCPP_WARN(
-        ros_node->get_logger(),
-        "[sura_safety] EmergencyWrench area_recovery requested but area force could not be computed");
-      return BT::NodeStatus::FAILURE;
-    }
-
-    force_x = area_force->x;
-    force_y = area_force->y;
-    force_z = area_force->z;
-  }
-
-  WrenchCommand msg;
-  msg.header.stamp = ros_node->now();
-  msg.requester = "sura_safety";
-  msg.controller = controller.value();
-  msg.priority = static_cast<uint8_t>(std::clamp(priority.value(), 1, 100));
-  msg.wrench.force.x = force_x.value();
-  msg.wrench.force.y = force_y.value();
-  msg.wrench.force.z = force_z.value();
-
-  wrench_pub_->publish(msg);
-
-  RCLCPP_ERROR(
-    ros_node->get_logger(),
-    "[sura_safety] Action: emergency wrench. reason=%s controller=%s priority=%u force=(%.3f, %.3f, %.3f)",
-    reason.value().c_str(),
-    msg.controller.c_str(),
-    msg.priority,
-    msg.wrench.force.x,
-    msg.wrench.force.y,
-    msg.wrench.force.z);
-
-  return BT::NodeStatus::SUCCESS;
-}
-
-void EmergencyWrench::navigatorCallback(const Navigator::SharedPtr msg)
-{
-  std::lock_guard<std::mutex> lock(navigator_mutex_);
-  last_navigator_msg_ = msg;
-}
-
-std::optional<EmergencyWrench::BodyForce> EmergencyWrench::computeAreaRecoveryForce() const
-{
-  const auto monitor = getMonitor(config());
-  auto diagnostic_name = getInput<std::string>("diagnostic_name");
-  if (!diagnostic_name)
-  {
-    auto diagnostic_suffix = getInput<std::string>("diagnostic_suffix");
-    if (!diagnostic_suffix)
-    {
-      diagnostic_suffix = "AreaLimit";
-    }
-
-    const std::string diagnostic_prefix =
-      config().blackboard->get<std::string>("diagnostic_prefix");
-    diagnostic_name =
-      diagnostic_prefix + "/Navigation/ Navigation " + diagnostic_suffix.value();
-  }
-
-  const auto current_x = parseDouble(
-    monitor->getValue(diagnostic_name.value(), "current_x"));
-  const auto current_y = parseDouble(
-    monitor->getValue(diagnostic_name.value(), "current_y"));
-  const auto center_x = parseDouble(
-    monitor->getValue(diagnostic_name.value(), "center_x"));
-  const auto center_y = parseDouble(
-    monitor->getValue(diagnostic_name.value(), "center_y"));
-
-  if (!current_x || !current_y || !center_x || !center_y)
-  {
-    return std::nullopt;
-  }
-
-  double force = 40.0;
-  auto area_recovery_force = getInput<double>("area_recovery_force");
-  if (area_recovery_force)
-  {
-    force = std::abs(area_recovery_force.value());
-  }
-
-  double target_x = center_x.value();
-  double target_y = center_y.value();
-
-  const auto shape = monitor->getValue(diagnostic_name.value(), "shape");
-  if (shape == "rectangle" || shape == "rect")
-  {
-    const auto width = parseDouble(
-      monitor->getValue(diagnostic_name.value(), "width"));
-    const auto height = parseDouble(
-      monitor->getValue(diagnostic_name.value(), "height"));
-
-    if (width && height)
-    {
-      const double half_width = width.value() * 0.5;
-      const double half_height = height.value() * 0.5;
-
-      target_x = std::clamp(
-        current_x.value(),
-        center_x.value() - half_width,
-        center_x.value() + half_width);
-      target_y = std::clamp(
-        current_y.value(),
-        center_y.value() - half_height,
-        center_y.value() + half_height);
-    }
-  }
-
-  const double world_x = target_x - current_x.value();
-  const double world_y = target_y - current_y.value();
-  const double norm = std::hypot(world_x, world_y);
-
-  if (norm <= 1e-6)
-  {
-    return BodyForce{};
-  }
-
-  Navigator::SharedPtr navigator_msg;
-  {
-    std::lock_guard<std::mutex> lock(navigator_mutex_);
-    navigator_msg = last_navigator_msg_;
-  }
-
-  if (!navigator_msg)
-  {
-    return std::nullopt;
-  }
-
-  const double yaw = yawFromQuaternion(navigator_msg->position.orientation);
-  const double unit_world_x = world_x / norm;
-  const double unit_world_y = world_y / norm;
-
-  BodyForce body_force;
-  body_force.x = force * (std::cos(yaw) * unit_world_x + std::sin(yaw) * unit_world_y);
-  body_force.y = force * (-std::sin(yaw) * unit_world_x + std::cos(yaw) * unit_world_y);
-  body_force.z = 0.0;
-  return body_force;
+  return safetyWarningTick(
+    config(),
+    warningDiagnosticSuffixFromNodeName(name()));
 }
 
 
