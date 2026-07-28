@@ -10,6 +10,9 @@ BT_REGISTER_NODES(factory)
   factory.registerNodeType<sura_safety::SafetyWarning>(
     "SafetyWarning");
 
+  factory.registerNodeType<sura_safety::DiagnosticsUnavailableFor>(
+    "DiagnosticsUnavailableFor");
+
   factory.registerNodeType<sura_safety::SafetyOk>(
     "SafetyOk");
 }

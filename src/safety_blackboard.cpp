@@ -34,6 +34,9 @@ void registerSafetyNodes(BT::BehaviorTreeFactory & factory)
   factory.registerNodeType<SafetyWarning>(
     "SafetyWarning");
 
+  factory.registerNodeType<DiagnosticsUnavailableFor>(
+    "DiagnosticsUnavailableFor");
+
   factory.registerNodeType<SafetyOk>(
     "SafetyOk");
 }

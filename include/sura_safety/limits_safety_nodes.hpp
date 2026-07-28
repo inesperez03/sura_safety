@@ -50,6 +50,23 @@ public:
   BT::NodeStatus tick() override;
 };
 
+class DiagnosticsUnavailableFor : public BT::SyncActionNode, protected LimitsSafetyBase
+{
+public:
+  DiagnosticsUnavailableFor(
+    const std::string & name,
+    const BT::NodeConfiguration & config);
+
+  static BT::PortsList providedPorts();
+
+  BT::NodeStatus tick() override;
+
+private:
+  bool condition_active_{false};
+  bool reported_{false};
+  rclcpp::Time condition_start_time_;
+};
+
 
 class SafetyOk : public BT::SyncActionNode
 {

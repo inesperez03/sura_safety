@@ -1,0 +1,167 @@
+<root>
+
+  <BehaviorTree ID="SafetyBranch">
+    <Sequence name="safety_branch">
+
+      <Fallback name="leak_safety">
+        <Sequence name="leak_safety_error">
+          <SafetyError name="leak_safety_error_condition"/>
+          <SurfaceAction
+            target_depth="0.0"
+            depth_tolerance="0.10"
+            timeout="30.0"
+            surface_force_z="-40.0"
+          />
+        </Sequence>
+
+        <SafetyOk name="leak_safety_ok"/>
+      </Fallback>
+
+      <Fallback name="battery_safety">
+        <Sequence name="battery_safety_error">
+          <SafetyError name="battery_safety_error_condition"/>
+          <SurfaceAction
+            target_depth="0.0"
+            depth_tolerance="0.10"
+            timeout="30.0"
+            surface_force_z="-40.0"
+          />
+          <DeactivateSystem system="thrusters" cooldown_sec="3.0"/>
+        </Sequence>
+
+        <SafetyOk name="battery_safety_ok"/>
+      </Fallback>
+
+      <Fallback name="surface_if_no_aruco_pose_or_gps">
+        <Sequence name="sensors_gps_aruco_unavailabe">
+          <DiagnosticsUnavailableFor
+            diagnostics="ArucoPose,GPS"
+            seconds="10.0"
+          />
+          <SurfaceAction
+            target_depth="0.0"
+            depth_tolerance="0.10"
+            timeout="30.0"
+            surface_force_z="-40.0"
+          />
+        </Sequence>
+
+        <SafetyOk name="aruco_pose_or_gps_available"/>
+      </Fallback>
+
+      <Fallback name="localization_safety">
+        <Sequence name="localization_safety_error">
+          <SafetyError name="localization_safety_error_condition"/>
+          <DeactivateControllers
+            controllers="all"
+            cooldown_sec="3.0"
+          />
+          <SetControllerInterlock
+            enabled="true"
+            reason="localization_stale"
+            controllers="body_velocity,position_hold,stabilize,depth_hold"
+          />
+        </Sequence>
+
+        <Sequence name="localization_safety_ok">
+          <SetControllerInterlock
+            enabled="false"
+            reason="localization_stale"
+          />
+          <SafetyOk name="localization_safety_ok_leaf"/>
+        </Sequence>
+      </Fallback>
+
+      <Fallback name="imu_safety">
+        <Sequence name="imu_safety_error">
+          <SafetyError name="imu_safety_error_condition"/>
+          <DeactivateControllers
+            controllers="all"
+            cooldown_sec="1.0"
+          />
+          <SetControllerInterlock
+            enabled="true"
+            reason="imu_stale"
+            controllers="body_velocity,position_hold,stabilize,depth_hold"
+          />
+        </Sequence>
+
+        <Sequence name="imu_safety_ok">
+          <SetControllerInterlock
+            enabled="false"
+            reason="imu_stale"
+          />
+          <SafetyOk name="imu_safety_ok_leaf"/>
+        </Sequence>
+      </Fallback>
+
+      <Fallback name="depth_safety_limit">
+        <Sequence name="depth_safety_error">
+          <SafetyError name="depth_safety_error_condition"/>
+          <SendWrench
+            force_x="0.0"
+            force_y="0.0"
+            force_z="-40.0"
+            torque_x="0.0"
+            torque_y="0.0"
+            torque_z="0.0"
+            priority="85"
+            reason="depth_limit_error"
+          />
+        </Sequence>
+
+        <SafetyWarning name="depth_safety_warning"/>
+
+        <SafetyOk name="depth_safety_ok"/>
+      </Fallback>
+
+      <Fallback name="altitude_safety_limit">
+        <Sequence name="altitude_safety_error">
+          <SafetyError name="altitude_safety_error_condition"/>
+          <SendWrench
+            force_x="0.0"
+            force_y="0.0"
+            force_z="-40.0"
+            torque_x="0.0"
+            torque_y="0.0"
+            torque_z="0.0"
+            priority="85"
+            reason="altitude_limit_error"
+          />
+        </Sequence>
+
+        <SafetyWarning name="altitude_safety_warning"/>
+
+        <SafetyOk name="altitude_safety_ok"/>
+      </Fallback>
+
+      <Fallback name="area_safety_limit">
+        <Sequence name="area_safety_error">
+          <SafetyError name="area_safety_error_condition"/>
+          <ComputeAreaRecoveryForce
+            diagnostic_suffix="AreaLimit"
+            force="40.0"
+            output_x="{area_force_x}"
+            output_y="{area_force_y}"
+          />
+          <SendWrench
+            force_x="{area_force_x}"
+            force_y="{area_force_y}"
+            force_z="0.0"
+            torque_x="0.0"
+            torque_y="0.0"
+            torque_z="0.0"
+            priority="85"
+            reason="area_limit_error"
+          />
+        </Sequence>
+
+        <SafetyWarning name="area_safety_warning"/>
+
+        <SafetyOk name="area_safety_ok"/>
+      </Fallback>
+
+    </Sequence>
+  </BehaviorTree>
+
+</root>

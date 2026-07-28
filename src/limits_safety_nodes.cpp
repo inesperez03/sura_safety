@@ -1,9 +1,47 @@
 #include "sura_safety/limits_safety_nodes.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <sstream>
+#include <vector>
+
 namespace sura_safety
 {
 namespace
 {
+
+std::string trim(std::string value)
+{
+  const auto not_space = [](unsigned char c) {
+    return !std::isspace(c);
+  };
+
+  value.erase(
+    value.begin(),
+    std::find_if(value.begin(), value.end(), not_space));
+  value.erase(
+    std::find_if(value.rbegin(), value.rend(), not_space).base(),
+    value.end());
+  return value;
+}
+
+std::vector<std::string> splitCommaList(const std::string & text)
+{
+  std::vector<std::string> values;
+  std::stringstream stream(text);
+  std::string item;
+
+  while (std::getline(stream, item, ','))
+  {
+    item = trim(item);
+    if (!item.empty())
+    {
+      values.push_back(item);
+    }
+  }
+
+  return values;
+}
 
 void appendSummaryValue(
   std::string & summary,
@@ -106,6 +144,62 @@ std::string diagnosticName(
     config.blackboard->get<std::string>("diagnostic_prefix");
 
   return diagnostic_prefix + "/Navigation/ Navigation " + diagnostic_suffix;
+}
+
+std::string aggregatedDiagnosticName(
+  const BT::NodeConfiguration & config,
+  const std::string & diagnostic_group,
+  const std::string & diagnostic_path)
+{
+  const std::string diagnostic_prefix =
+    config.blackboard->get<std::string>("diagnostic_prefix");
+  const auto group = trim(diagnostic_group);
+  const auto path = trim(diagnostic_path);
+
+  if (path.empty())
+  {
+    return diagnostic_prefix;
+  }
+
+  if (!group.empty() && path.front() != '/')
+  {
+    return diagnostic_prefix + "/" + group + "/ " + group + " " + path;
+  }
+
+  if (path.rfind(diagnostic_prefix + "/", 0) == 0)
+  {
+    return path;
+  }
+
+  std::string normalized_path = path;
+  if (normalized_path.front() != '/')
+  {
+    normalized_path = "/" + normalized_path;
+  }
+
+  const auto slash_pos = normalized_path.find('/', 1);
+  if (slash_pos == std::string::npos)
+  {
+    return diagnostic_prefix + normalized_path;
+  }
+
+  const auto path_group = normalized_path.substr(1, slash_pos - 1);
+  const auto item = normalized_path.substr(slash_pos + 1);
+  return diagnostic_prefix + "/" + path_group + "/ " + path_group + " " + item;
+}
+
+bool isSensorUnavailable(
+  const DiagnosticsMonitor & monitor,
+  const std::string & diagnostic_name)
+{
+  const auto status = monitor.getStatus(diagnostic_name);
+  if (!status)
+  {
+    return true;
+  }
+
+  return status->level == diagnostic_msgs::msg::DiagnosticStatus::ERROR ||
+         status->level == diagnostic_msgs::msg::DiagnosticStatus::STALE;
 }
 
 std::string diagnosticNameFromNodeName(
@@ -289,6 +383,108 @@ BT::NodeStatus SafetyWarning::tick()
   return safetyWarningTick(
     config(),
     warningDiagnosticSuffixFromNodeName(name()));
+}
+
+
+// =======================================================
+// DiagnosticsUnavailableFor
+// =======================================================
+
+DiagnosticsUnavailableFor::DiagnosticsUnavailableFor(
+  const std::string & name,
+  const BT::NodeConfiguration & config)
+: BT::SyncActionNode(name, config)
+{
+}
+
+BT::PortsList DiagnosticsUnavailableFor::providedPorts()
+{
+  return {
+    BT::InputPort<std::string>("diagnostics"),
+    BT::InputPort<double>("seconds")
+  };
+}
+
+BT::NodeStatus DiagnosticsUnavailableFor::tick()
+{
+  const auto monitor = getMonitor(config());
+  const auto ros_node = getRosNode(config());
+  auto diagnostics_text = getInput<std::string>("diagnostics");
+  auto seconds = getInput<double>("seconds");
+
+  if (!diagnostics_text)
+  {
+    RCLCPP_ERROR(
+      ros_node->get_logger(),
+      "[sura_safety] DiagnosticsUnavailableFor requires diagnostics input");
+    condition_active_ = false;
+    return BT::NodeStatus::FAILURE;
+  }
+
+  const auto diagnostics = splitCommaList(diagnostics_text.value());
+  if (diagnostics.empty())
+  {
+    RCLCPP_ERROR(
+      ros_node->get_logger(),
+      "[sura_safety] DiagnosticsUnavailableFor received empty diagnostics input");
+    condition_active_ = false;
+    return BT::NodeStatus::FAILURE;
+  }
+
+  bool all_unavailable = true;
+  std::string unavailable_summary;
+  for (const auto & diagnostic : diagnostics)
+  {
+    const auto diagnostic_name = aggregatedDiagnosticName(
+      config(),
+      "Sensors",
+      diagnostic);
+    if (!isSensorUnavailable(*monitor, diagnostic_name))
+    {
+      all_unavailable = false;
+      break;
+    }
+
+    if (!unavailable_summary.empty())
+    {
+      unavailable_summary += ",";
+    }
+    unavailable_summary += diagnostic;
+  }
+
+  if (!all_unavailable)
+  {
+    condition_active_ = false;
+    reported_ = false;
+    return BT::NodeStatus::FAILURE;
+  }
+
+  const auto now = ros_node->now();
+  if (!condition_active_)
+  {
+    condition_active_ = true;
+    condition_start_time_ = now;
+    return BT::NodeStatus::FAILURE;
+  }
+
+  const double timeout = seconds && seconds.value() > 0.0 ?
+    seconds.value() : 10.0;
+  const double elapsed = (now - condition_start_time_).seconds();
+  if (elapsed < timeout)
+  {
+    return BT::NodeStatus::FAILURE;
+  }
+
+  if (!reported_)
+  {
+    RCLCPP_ERROR(
+      ros_node->get_logger(),
+      "[sura_safety] Safety ERROR. sensors unavailable for %.3fs: %s",
+      elapsed,
+      unavailable_summary.c_str());
+    reported_ = true;
+  }
+  return BT::NodeStatus::SUCCESS;
 }
 
 
