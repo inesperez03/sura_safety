@@ -5,7 +5,7 @@
 
       <Fallback name="leak_safety">
         <Sequence name="leak_safety_error">
-          <SafetyError name="leak_safety_error_condition"/>
+          <SafetyCriticalError name="leak_safety_error_condition"/>
           <SurfaceAction
             target_depth="0.0"
             depth_tolerance="0.10"
@@ -19,7 +19,7 @@
 
       <Fallback name="battery_safety">
         <Sequence name="battery_safety_error">
-          <SafetyError name="battery_safety_error_condition"/>
+          <SafetyCriticalError name="battery_safety_error_condition"/>
           <SurfaceAction
             target_depth="0.0"
             depth_tolerance="0.10"
@@ -51,7 +51,7 @@
 
       <Fallback name="localization_safety">
         <Sequence name="localization_safety_error">
-          <SafetyError name="localization_safety_error_condition"/>
+          <SafetyCriticalError name="localization_safety_error_condition"/>
           <DeactivateControllers
             controllers="all"
             cooldown_sec="3.0"
@@ -74,7 +74,7 @@
 
       <Fallback name="imu_safety">
         <Sequence name="imu_safety_error">
-          <SafetyError name="imu_safety_error_condition"/>
+          <SafetyCriticalError name="imu_safety_error_condition"/>
           <DeactivateControllers
             controllers="all"
             cooldown_sec="1.0"
@@ -160,6 +160,8 @@
 
         <SafetyOk name="area_safety_ok"/>
       </Fallback>
+
+      <UpdateMissionControlFromSafety name="update_mission_control_from_safety"/>
 
     </Sequence>
   </BehaviorTree>

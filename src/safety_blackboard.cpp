@@ -31,6 +31,9 @@ void registerSafetyNodes(BT::BehaviorTreeFactory & factory)
   factory.registerNodeType<SafetyError>(
     "SafetyError");
 
+  factory.registerNodeType<SafetyCriticalError>(
+    "SafetyCriticalError");
+
   factory.registerNodeType<SafetyWarning>(
     "SafetyWarning");
 
@@ -39,6 +42,9 @@ void registerSafetyNodes(BT::BehaviorTreeFactory & factory)
 
   factory.registerNodeType<SafetyOk>(
     "SafetyOk");
+
+  factory.registerNodeType<UpdateMissionControlFromSafety>(
+    "UpdateMissionControlFromSafety");
 }
 
 void configureSafetyBlackboard(

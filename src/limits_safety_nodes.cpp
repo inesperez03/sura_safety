@@ -250,6 +250,25 @@ bool staleCountsAsError(const std::string & node_name)
          node_name.find("localization") != std::string::npos;
 }
 
+bool statusIsErrorForNode(
+  const diagnostic_msgs::msg::DiagnosticStatus & status,
+  const std::string & node_name)
+{
+  return status.level == diagnostic_msgs::msg::DiagnosticStatus::ERROR ||
+         (staleCountsAsError(node_name) &&
+          status.level == diagnostic_msgs::msg::DiagnosticStatus::STALE);
+}
+
+bool nodeHasSafetyError(
+  const DiagnosticsMonitor & monitor,
+  const BT::NodeConfiguration & config,
+  const std::string & node_name)
+{
+  const auto diagnostic_name = diagnosticNameFromNodeName(config, node_name);
+  const auto status = monitor.getStatus(diagnostic_name);
+  return status && statusIsErrorForNode(*status, node_name);
+}
+
 BT::NodeStatus safetyWarningTick(
   const BT::NodeConfiguration & config,
   const std::string & diagnostic_suffix)
@@ -339,19 +358,63 @@ BT::NodeStatus SafetyError::tick()
   const auto ros_node = getRosNode(config());
   const auto diagnostic_name = diagnosticNameFromNodeName(config(), name());
   const auto status = monitor->getStatus(diagnostic_name);
-  const bool safety_error = status &&
-    (status->level == diagnostic_msgs::msg::DiagnosticStatus::ERROR ||
-     (staleCountsAsError(name()) &&
-      status->level == diagnostic_msgs::msg::DiagnosticStatus::STALE));
+  const bool safety_error = status && statusIsErrorForNode(*status, name());
 
   if (safety_error)
   {
+    config().blackboard->set("mission_control", std::string{"pause"});
+
     const auto value_summary =
       safetyValueSummary(*monitor, diagnostic_name);
 
     RCLCPP_ERROR(
       ros_node->get_logger(),
       "[sura_safety] Safety ERROR/STALE. diagnostic=%s %s",
+      diagnostic_name.c_str(),
+      value_summary.c_str());
+
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  return BT::NodeStatus::FAILURE;
+}
+
+
+// =======================================================
+// SafetyCriticalError
+// =======================================================
+
+SafetyCriticalError::SafetyCriticalError(
+  const std::string & name,
+  const BT::NodeConfiguration & config)
+: BT::SyncActionNode(name, config)
+{
+}
+
+BT::PortsList SafetyCriticalError::providedPorts()
+{
+  return {};
+}
+
+BT::NodeStatus SafetyCriticalError::tick()
+{
+  const auto monitor = getMonitor(config());
+  const auto ros_node = getRosNode(config());
+  const auto diagnostic_name = diagnosticNameFromNodeName(config(), name());
+  const auto status = monitor->getStatus(diagnostic_name);
+  const bool safety_error = status && statusIsErrorForNode(*status, name());
+
+  if (safety_error)
+  {
+    config().blackboard->set("mission_control", std::string{"abort"});
+    config().blackboard->set("mission_state", std::string{"aborted"});
+
+    const auto value_summary =
+      safetyValueSummary(*monitor, diagnostic_name);
+
+    RCLCPP_ERROR(
+      ros_node->get_logger(),
+      "[sura_safety] Safety CRITICAL ERROR/STALE. diagnostic=%s %s",
       diagnostic_name.c_str(),
       value_summary.c_str());
 
@@ -506,6 +569,61 @@ BT::PortsList SafetyOk::providedPorts()
 
 BT::NodeStatus SafetyOk::tick()
 {
+  return BT::NodeStatus::SUCCESS;
+}
+
+
+// =======================================================
+// UpdateMissionControlFromSafety
+// =======================================================
+
+UpdateMissionControlFromSafety::UpdateMissionControlFromSafety(
+  const std::string & name,
+  const BT::NodeConfiguration & config)
+: BT::SyncActionNode(name, config)
+{
+}
+
+BT::PortsList UpdateMissionControlFromSafety::providedPorts()
+{
+  return {};
+}
+
+BT::NodeStatus UpdateMissionControlFromSafety::tick()
+{
+  const auto monitor = getMonitor(config());
+
+  const std::vector<std::string> fatal_nodes = {
+    "leak_safety_error_condition",
+    "battery_safety_error_condition",
+    "localization_safety_error_condition",
+    "imu_safety_error_condition"
+  };
+  for (const auto & node_name : fatal_nodes)
+  {
+    if (nodeHasSafetyError(*monitor, config(), node_name))
+    {
+      config().blackboard->set("mission_control", std::string{"abort"});
+      config().blackboard->set("mission_state", std::string{"aborted"});
+      return BT::NodeStatus::SUCCESS;
+    }
+  }
+
+  const std::vector<std::string> recoverable_nodes = {
+    "depth_safety_error_condition",
+    "altitude_safety_error_condition",
+    "area_safety_error_condition"
+  };
+  for (const auto & node_name : recoverable_nodes)
+  {
+    if (nodeHasSafetyError(*monitor, config(), node_name))
+    {
+      config().blackboard->set("mission_control", std::string{"pause"});
+      return BT::NodeStatus::SUCCESS;
+    }
+  }
+
+  config().blackboard->set("mission_control", std::string{"run"});
   return BT::NodeStatus::SUCCESS;
 }
 

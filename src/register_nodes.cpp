@@ -7,6 +7,9 @@ BT_REGISTER_NODES(factory)
   factory.registerNodeType<sura_safety::SafetyError>(
     "SafetyError");
 
+  factory.registerNodeType<sura_safety::SafetyCriticalError>(
+    "SafetyCriticalError");
+
   factory.registerNodeType<sura_safety::SafetyWarning>(
     "SafetyWarning");
 

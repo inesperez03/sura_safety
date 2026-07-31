@@ -37,6 +37,18 @@ public:
   BT::NodeStatus tick() override;
 };
 
+class SafetyCriticalError : public BT::SyncActionNode, protected LimitsSafetyBase
+{
+public:
+  SafetyCriticalError(
+    const std::string & name,
+    const BT::NodeConfiguration & config);
+
+  static BT::PortsList providedPorts();
+
+  BT::NodeStatus tick() override;
+};
+
 
 class SafetyWarning : public BT::SyncActionNode, protected LimitsSafetyBase
 {
@@ -72,6 +84,18 @@ class SafetyOk : public BT::SyncActionNode
 {
 public:
   SafetyOk(
+    const std::string & name,
+    const BT::NodeConfiguration & config);
+
+  static BT::PortsList providedPorts();
+
+  BT::NodeStatus tick() override;
+};
+
+class UpdateMissionControlFromSafety : public BT::SyncActionNode, protected LimitsSafetyBase
+{
+public:
+  UpdateMissionControlFromSafety(
     const std::string & name,
     const BT::NodeConfiguration & config);
 
