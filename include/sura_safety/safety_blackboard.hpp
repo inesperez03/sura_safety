@@ -10,6 +10,8 @@
 namespace sura_safety
 {
 
+void registerSafetyNodes(BT::BehaviorTreeFactory & factory);
+
 void configureSafetyBlackboard(
   const rclcpp::Node::SharedPtr & node,
   const BT::Blackboard::Ptr & blackboard,

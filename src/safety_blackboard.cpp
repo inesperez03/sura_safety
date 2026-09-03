@@ -5,7 +5,7 @@
 #include <memory>
 
 #include "sura_safety/diagnostics_monitor.hpp"
-#include "sura_safety/limits_safety_nodes.hpp"
+#include "sura_safety/safety_diagnostic_nodes.hpp"
 
 namespace sura_safety
 {
@@ -24,27 +24,36 @@ std::string toUpper(std::string text)
   return text;
 }
 
+template<typename NodeT>
+void registerNodeWithDescription(
+  BT::BehaviorTreeFactory & factory,
+  const std::string & node_id)
+{
+  factory.registerNodeType<NodeT>(node_id);
+  factory.addDescriptionToManifest(node_id, NodeT::main_description());
+}
+
 }  // namespace
 
 void registerSafetyNodes(BT::BehaviorTreeFactory & factory)
 {
-  factory.registerNodeType<SafetyError>(
-    "SafetyError");
+  registerNodeWithDescription<SafetyError>(
+    factory, "SafetyError");
 
-  factory.registerNodeType<SafetyCriticalError>(
-    "SafetyCriticalError");
+  registerNodeWithDescription<SafetyCriticalError>(
+    factory, "SafetyCriticalError");
 
-  factory.registerNodeType<SafetyWarning>(
-    "SafetyWarning");
+  registerNodeWithDescription<SafetyWarning>(
+    factory, "SafetyWarning");
 
-  factory.registerNodeType<DiagnosticsUnavailableFor>(
-    "DiagnosticsUnavailableFor");
+  registerNodeWithDescription<DiagnosticsUnavailableFor>(
+    factory, "DiagnosticsUnavailableFor");
 
-  factory.registerNodeType<SafetyOk>(
-    "SafetyOk");
+  registerNodeWithDescription<SafetyOk>(
+    factory, "SafetyOk");
 
-  factory.registerNodeType<UpdateMissionControlFromSafety>(
-    "UpdateMissionControlFromSafety");
+  registerNodeWithDescription<UpdateMissionControlFromSafety>(
+    factory, "UpdateMissionControlFromSafety");
 }
 
 void configureSafetyBlackboard(

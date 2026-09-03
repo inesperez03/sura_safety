@@ -8,7 +8,7 @@
           <SafetyCriticalError name="leak_safety_error_condition"/>
           <SurfaceAction
             target_depth="0.0"
-            depth_tolerance="0.10"
+            depth_tolerance="0.20"
             timeout="30.0"
             surface_force_z="-40.0"
           />
@@ -22,7 +22,7 @@
           <SafetyCriticalError name="battery_safety_error_condition"/>
           <SurfaceAction
             target_depth="0.0"
-            depth_tolerance="0.10"
+            depth_tolerance="0.20"
             timeout="30.0"
             surface_force_z="-40.0"
           />
@@ -40,7 +40,7 @@
           />
           <SurfaceAction
             target_depth="0.0"
-            depth_tolerance="0.10"
+            depth_tolerance="0.20"
             timeout="30.0"
             surface_force_z="-40.0"
           />

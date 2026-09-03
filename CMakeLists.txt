@@ -12,7 +12,7 @@ find_package(behaviortree_cpp_v3 REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/diagnostics_monitor.cpp
-  src/limits_safety_nodes.cpp
+  src/safety_diagnostic_nodes.cpp
   src/safety_blackboard.cpp
   src/register_nodes.cpp
 )

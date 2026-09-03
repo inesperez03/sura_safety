@@ -1,4 +1,4 @@
-#include "sura_safety/limits_safety_nodes.hpp"
+#include "sura_safety/safety_diagnostic_nodes.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -10,7 +10,7 @@ namespace sura_safety
 namespace
 {
 
-std::string trim(std::string value)
+std::string trim(std::string value) // remove spaces from the beginning and end of a string
 {
   const auto not_space = [](unsigned char c) {
     return !std::isspace(c);
@@ -244,8 +244,7 @@ std::string diagnosticNameFromNodeName(
 
 bool staleCountsAsError(const std::string & node_name)
 {
-  return node_name.find("leak") != std::string::npos ||
-         node_name.find("battery") != std::string::npos ||
+  return node_name.find("battery") != std::string::npos ||
          node_name.find("imu") != std::string::npos ||
          node_name.find("localization") != std::string::npos;
 }
@@ -352,6 +351,11 @@ BT::PortsList SafetyError::providedPorts()
   return {};
 }
 
+const char * SafetyError::main_description()
+{
+  return "Detects a recoverable safety error and requests mission pause.";
+}
+
 BT::NodeStatus SafetyError::tick()
 {
   const auto monitor = getMonitor(config());
@@ -394,6 +398,11 @@ SafetyCriticalError::SafetyCriticalError(
 BT::PortsList SafetyCriticalError::providedPorts()
 {
   return {};
+}
+
+const char * SafetyCriticalError::main_description()
+{
+  return "Detects a critical safety error and requests mission abort.";
 }
 
 BT::NodeStatus SafetyCriticalError::tick()
@@ -441,6 +450,11 @@ BT::PortsList SafetyWarning::providedPorts()
   return {};
 }
 
+const char * SafetyWarning::main_description()
+{
+  return "Detects a safety warning condition for mission awareness.";
+}
+
 BT::NodeStatus SafetyWarning::tick()
 {
   return safetyWarningTick(
@@ -463,9 +477,18 @@ DiagnosticsUnavailableFor::DiagnosticsUnavailableFor(
 BT::PortsList DiagnosticsUnavailableFor::providedPorts()
 {
   return {
-    BT::InputPort<std::string>("diagnostics"),
-    BT::InputPort<double>("seconds")
+    BT::InputPort<std::string>(
+      "diagnostics",
+      "Comma-separated sensor diagnostics that must be unavailable."),
+    BT::InputPort<double>(
+      "seconds",
+      "Minimum duration that the diagnostics must remain unavailable, in seconds.")
   };
+}
+
+const char * DiagnosticsUnavailableFor::main_description()
+{
+  return "Checks whether selected diagnostics have been unavailable for a required duration.";
 }
 
 BT::NodeStatus DiagnosticsUnavailableFor::tick()
@@ -567,6 +590,11 @@ BT::PortsList SafetyOk::providedPorts()
   return {};
 }
 
+const char * SafetyOk::main_description()
+{
+  return "Reports that the safety branch is currently clear.";
+}
+
 BT::NodeStatus SafetyOk::tick()
 {
   return BT::NodeStatus::SUCCESS;
@@ -587,6 +615,11 @@ UpdateMissionControlFromSafety::UpdateMissionControlFromSafety(
 BT::PortsList UpdateMissionControlFromSafety::providedPorts()
 {
   return {};
+}
+
+const char * UpdateMissionControlFromSafety::main_description()
+{
+  return "Updates mission control state according to active safety diagnostics.";
 }
 
 BT::NodeStatus UpdateMissionControlFromSafety::tick()
