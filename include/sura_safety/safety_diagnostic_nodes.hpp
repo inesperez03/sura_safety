@@ -20,8 +20,6 @@ protected:
   static rclcpp::Node::SharedPtr getRosNode(
     const BT::NodeConfiguration & config);
 
-  static std::string getDepthDiagnosticName(
-    const BT::NodeConfiguration & config);
 };
 
 
@@ -48,6 +46,17 @@ public:
   static BT::PortsList providedPorts();
   static const char * main_description();
 
+  BT::NodeStatus tick() override;
+};
+
+
+class SafetyErrorAsk : public BT::SyncActionNode, protected LimitsSafetyBase
+{
+public:
+  SafetyErrorAsk(const std::string & name, const BT::NodeConfiguration & config);
+
+  static BT::PortsList providedPorts();
+  static const char * main_description();
   BT::NodeStatus tick() override;
 };
 

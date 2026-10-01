@@ -1,4 +1,5 @@
 #include "sura_safety/safety_diagnostic_nodes.hpp"
+#include "sura_safety/safety_ask_state.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -136,56 +137,29 @@ std::string safetyValueSummary(
   return summary;
 }
 
-std::string diagnosticName(
-  const BT::NodeConfiguration & config,
-  const std::string & diagnostic_suffix)
+BT::PortsList diagnosticPorts()
 {
-  const std::string diagnostic_prefix =
-    config.blackboard->get<std::string>("diagnostic_prefix");
-
-  return diagnostic_prefix + "/Navigation/ Navigation " + diagnostic_suffix;
+  return {
+    BT::InputPort<std::string>("diagnostic", "Source identity, relative to the robot or absolute."),
+    BT::InputPort<bool>("stale_is_error", false, "Treat a STALE diagnostic as an error.")
+  };
 }
 
-std::string aggregatedDiagnosticName(
-  const BT::NodeConfiguration & config,
-  const std::string & diagnostic_group,
-  const std::string & diagnostic_path)
+std::string requiredDiagnostic(const BT::TreeNode & node)
 {
-  const std::string diagnostic_prefix =
-    config.blackboard->get<std::string>("diagnostic_prefix");
-  const auto group = trim(diagnostic_group);
-  const auto path = trim(diagnostic_path);
-
-  if (path.empty())
+  const auto input = node.getInput<std::string>("diagnostic");
+  if (!input || trim(input.value()).empty())
   {
-    return diagnostic_prefix;
+    throw BT::RuntimeError("Missing diagnostic identity for ", node.name());
   }
+  return trim(input.value());
+}
 
-  if (!group.empty() && path.front() != '/')
-  {
-    return diagnostic_prefix + "/" + group + "/ " + group + " " + path;
-  }
-
-  if (path.rfind(diagnostic_prefix + "/", 0) == 0)
-  {
-    return path;
-  }
-
-  std::string normalized_path = path;
-  if (normalized_path.front() != '/')
-  {
-    normalized_path = "/" + normalized_path;
-  }
-
-  const auto slash_pos = normalized_path.find('/', 1);
-  if (slash_pos == std::string::npos)
-  {
-    return diagnostic_prefix + normalized_path;
-  }
-
-  const auto path_group = normalized_path.substr(1, slash_pos - 1);
-  const auto item = normalized_path.substr(slash_pos + 1);
-  return diagnostic_prefix + "/" + path_group + "/ " + path_group + " " + item;
+bool statusIsError(
+  const diagnostic_msgs::msg::DiagnosticStatus & status, bool stale_is_error)
+{
+  return status.level == diagnostic_msgs::msg::DiagnosticStatus::ERROR ||
+    (stale_is_error && status.level == diagnostic_msgs::msg::DiagnosticStatus::STALE);
 }
 
 bool isSensorUnavailable(
@@ -202,82 +176,16 @@ bool isSensorUnavailable(
          status->level == diagnostic_msgs::msg::DiagnosticStatus::STALE;
 }
 
-std::string diagnosticNameFromNodeName(
-  const BT::NodeConfiguration & config,
-  const std::string & node_name)
-{
-  const std::string diagnostic_prefix =
-    config.blackboard->get<std::string>("diagnostic_prefix");
-
-  if (node_name.find("leak") != std::string::npos)
-  {
-    return diagnostic_prefix + "/Sensors/ Sensors LeakSensors";
-  }
-
-  if (node_name.find("battery") != std::string::npos)
-  {
-    return diagnostic_prefix + "/Sensors/ Sensors Battery";
-  }
-
-  if (node_name.find("imu") != std::string::npos)
-  {
-    return diagnostic_prefix + "/Sensors/ Sensors IMU";
-  }
-
-  if (node_name.find("localization") != std::string::npos)
-  {
-    return diagnosticName(config, "Frequency");
-  }
-
-  if (node_name.find("altitude") != std::string::npos)
-  {
-    return diagnosticName(config, "AltitudeLimit");
-  }
-
-  if (node_name.find("area") != std::string::npos)
-  {
-    return diagnosticName(config, "AreaLimit");
-  }
-
-  return diagnosticName(config, "DepthLimit");
-}
-
-bool staleCountsAsError(const std::string & node_name)
-{
-  return node_name.find("battery") != std::string::npos ||
-         node_name.find("imu") != std::string::npos ||
-         node_name.find("localization") != std::string::npos;
-}
-
-bool statusIsErrorForNode(
-  const diagnostic_msgs::msg::DiagnosticStatus & status,
-  const std::string & node_name)
-{
-  return status.level == diagnostic_msgs::msg::DiagnosticStatus::ERROR ||
-         (staleCountsAsError(node_name) &&
-          status.level == diagnostic_msgs::msg::DiagnosticStatus::STALE);
-}
-
-bool nodeHasSafetyError(
-  const DiagnosticsMonitor & monitor,
-  const BT::NodeConfiguration & config,
-  const std::string & node_name)
-{
-  const auto diagnostic_name = diagnosticNameFromNodeName(config, node_name);
-  const auto status = monitor.getStatus(diagnostic_name);
-  return status && statusIsErrorForNode(*status, node_name);
-}
-
 BT::NodeStatus safetyWarningTick(
   const BT::NodeConfiguration & config,
-  const std::string & diagnostic_suffix)
+  const std::string & diagnostic_name)
 {
   const auto monitor =
     config.blackboard->get<std::shared_ptr<DiagnosticsMonitor>>(
       "diagnostics_monitor");
   const auto ros_node =
     config.blackboard->get<rclcpp::Node::SharedPtr>("ros_node");
-  const auto name = diagnosticName(config, diagnostic_suffix);
+  const auto & name = diagnostic_name;
 
   if (monitor->isWarn(name))
   {
@@ -295,21 +203,6 @@ BT::NodeStatus safetyWarningTick(
   return BT::NodeStatus::FAILURE;
 }
 
-std::string warningDiagnosticSuffixFromNodeName(const std::string & node_name)
-{
-  if (node_name.find("altitude") != std::string::npos)
-  {
-    return "AltitudeLimit";
-  }
-
-  if (node_name.find("area") != std::string::npos)
-  {
-    return "AreaLimit";
-  }
-
-  return "DepthLimit";
-}
-
 }  // namespace
 
 std::shared_ptr<DiagnosticsMonitor> LimitsSafetyBase::getMonitor(
@@ -325,16 +218,6 @@ rclcpp::Node::SharedPtr LimitsSafetyBase::getRosNode(
   return config.blackboard->get<rclcpp::Node::SharedPtr>("ros_node");
 }
 
-std::string LimitsSafetyBase::getDepthDiagnosticName(
-  const BT::NodeConfiguration & config)
-{
-  const std::string diagnostic_prefix =
-    config.blackboard->get<std::string>("diagnostic_prefix");
-
-  return diagnostic_prefix + "/Navigation/ Navigation DepthLimit";
-}
-
-
 // =======================================================
 // SafetyError
 // =======================================================
@@ -348,7 +231,7 @@ SafetyError::SafetyError(
 
 BT::PortsList SafetyError::providedPorts()
 {
-  return {};
+  return diagnosticPorts();
 }
 
 const char * SafetyError::main_description()
@@ -360,9 +243,9 @@ BT::NodeStatus SafetyError::tick()
 {
   const auto monitor = getMonitor(config());
   const auto ros_node = getRosNode(config());
-  const auto diagnostic_name = diagnosticNameFromNodeName(config(), name());
+  const auto diagnostic_name = requiredDiagnostic(*this);
   const auto status = monitor->getStatus(diagnostic_name);
-  const bool safety_error = status && statusIsErrorForNode(*status, name());
+  const bool safety_error = status && statusIsError(*status, getInput<bool>("stale_is_error").value());
 
   if (safety_error)
   {
@@ -397,7 +280,7 @@ SafetyCriticalError::SafetyCriticalError(
 
 BT::PortsList SafetyCriticalError::providedPorts()
 {
-  return {};
+  return diagnosticPorts();
 }
 
 const char * SafetyCriticalError::main_description()
@@ -409,9 +292,9 @@ BT::NodeStatus SafetyCriticalError::tick()
 {
   const auto monitor = getMonitor(config());
   const auto ros_node = getRosNode(config());
-  const auto diagnostic_name = diagnosticNameFromNodeName(config(), name());
+  const auto diagnostic_name = requiredDiagnostic(*this);
   const auto status = monitor->getStatus(diagnostic_name);
-  const bool safety_error = status && statusIsErrorForNode(*status, name());
+  const bool safety_error = status && statusIsError(*status, getInput<bool>("stale_is_error").value());
 
   if (safety_error)
   {
@@ -435,6 +318,66 @@ BT::NodeStatus SafetyCriticalError::tick()
 
 
 // =======================================================
+// SafetyErrorAsk
+// =======================================================
+
+SafetyErrorAsk::SafetyErrorAsk(
+  const std::string & name, const BT::NodeConfiguration & config)
+: BT::SyncActionNode(name, config)
+{
+}
+
+BT::PortsList SafetyErrorAsk::providedPorts()
+{
+  return diagnosticPorts();
+}
+
+const char * SafetyErrorAsk::main_description()
+{
+  return "Pauses the mission on a diagnostic ERROR until an intervention is resolved.";
+}
+
+BT::NodeStatus SafetyErrorAsk::tick()
+{
+  const auto monitor = getMonitor(config());
+  const auto diagnostic_name = requiredDiagnostic(*this);
+  const auto source = monitor->resolveName(diagnostic_name);
+  const auto state = config().blackboard->get<std::shared_ptr<SafetyAskState>>("safety_ask_state");
+  const auto status = monitor->getStatus(diagnostic_name);
+  if (!status || !statusIsError(*status, getInput<bool>("stale_is_error").value()))
+  {
+    state->rearm(source);
+    return BT::NodeStatus::FAILURE;
+  }
+
+  if (state->blocked_sources.count(source) != 0)
+  {
+    config().blackboard->set("mission_control", std::string{"abort"});
+    config().blackboard->set("mission_state", std::string{"aborted"});
+    return BT::NodeStatus::SUCCESS;
+  }
+  std::string detail = status->message;
+  for (const auto & value : status->values) {
+    detail += " " + value.key + "=" + value.value;
+  }
+  if (state->activate(source, detail))
+  {
+    RCLCPP_ERROR(
+      getRosNode(config())->get_logger(),
+      "[sura_safety] Safety decision required. diagnostic=%s %s",
+      diagnostic_name.c_str(), detail.c_str());
+    config().blackboard->set("mission_state", std::string{"awaiting_decision"});
+  }
+  if (state->active_source == source)
+  {
+    config().blackboard->set("mission_control", std::string{"ask"});
+    return BT::NodeStatus::SUCCESS;
+  }
+  return BT::NodeStatus::FAILURE;
+}
+
+
+// =======================================================
 // SafetyWarning
 // =======================================================
 
@@ -447,7 +390,7 @@ SafetyWarning::SafetyWarning(
 
 BT::PortsList SafetyWarning::providedPorts()
 {
-  return {};
+  return diagnosticPorts();
 }
 
 const char * SafetyWarning::main_description()
@@ -459,7 +402,7 @@ BT::NodeStatus SafetyWarning::tick()
 {
   return safetyWarningTick(
     config(),
-    warningDiagnosticSuffixFromNodeName(name()));
+    requiredDiagnostic(*this));
 }
 
 
@@ -479,7 +422,7 @@ BT::PortsList DiagnosticsUnavailableFor::providedPorts()
   return {
     BT::InputPort<std::string>(
       "diagnostics",
-      "Comma-separated sensor diagnostics that must be unavailable."),
+      "Comma-separated source identities that must all be unavailable."),
     BT::InputPort<double>(
       "seconds",
       "Minimum duration that the diagnostics must remain unavailable, in seconds.")
@@ -521,10 +464,7 @@ BT::NodeStatus DiagnosticsUnavailableFor::tick()
   std::string unavailable_summary;
   for (const auto & diagnostic : diagnostics)
   {
-    const auto diagnostic_name = aggregatedDiagnosticName(
-      config(),
-      "Sensors",
-      diagnostic);
+    const auto & diagnostic_name = diagnostic;
     if (!isSensorUnavailable(*monitor, diagnostic_name))
     {
       all_unavailable = false;
@@ -614,7 +554,11 @@ UpdateMissionControlFromSafety::UpdateMissionControlFromSafety(
 
 BT::PortsList UpdateMissionControlFromSafety::providedPorts()
 {
-  return {};
+  return {
+    BT::InputPort<std::string>("critical_diagnostics", "", "Comma-separated diagnostics whose ERROR aborts the mission."),
+    BT::InputPort<std::string>("recoverable_diagnostics", "", "Comma-separated diagnostics whose ERROR pauses the mission."),
+    BT::InputPort<std::string>("stale_error_diagnostics", "", "Diagnostics whose STALE also counts as ERROR.")
+  };
 }
 
 const char * UpdateMissionControlFromSafety::main_description()
@@ -626,30 +570,38 @@ BT::NodeStatus UpdateMissionControlFromSafety::tick()
 {
   const auto monitor = getMonitor(config());
 
-  const std::vector<std::string> fatal_nodes = {
-    "leak_safety_error_condition",
-    "battery_safety_error_condition",
-    "localization_safety_error_condition",
-    "imu_safety_error_condition"
+  const auto stale_errors = splitCommaList(getInput<std::string>("stale_error_diagnostics").value());
+  const auto has_error = [&](const std::string & identity) {
+    const auto status = monitor->getStatus(identity);
+    const bool stale_is_error = std::find(stale_errors.begin(), stale_errors.end(), identity) !=
+      stale_errors.end();
+    return status && statusIsError(*status, stale_is_error);
   };
-  for (const auto & node_name : fatal_nodes)
+  for (const auto & identity : splitCommaList(getInput<std::string>("critical_diagnostics").value()))
   {
-    if (nodeHasSafetyError(*monitor, config(), node_name))
+    if (has_error(identity))
     {
       config().blackboard->set("mission_control", std::string{"abort"});
       config().blackboard->set("mission_state", std::string{"aborted"});
       return BT::NodeStatus::SUCCESS;
     }
   }
-
-  const std::vector<std::string> recoverable_nodes = {
-    "depth_safety_error_condition",
-    "altitude_safety_error_condition",
-    "area_safety_error_condition"
-  };
-  for (const auto & node_name : recoverable_nodes)
+  const auto ask_state = config().blackboard->get<std::shared_ptr<SafetyAskState>>("safety_ask_state");
+  if (!ask_state->blocked_sources.empty())
   {
-    if (nodeHasSafetyError(*monitor, config(), node_name))
+    config().blackboard->set("mission_control", std::string{"abort"});
+    config().blackboard->set("mission_state", std::string{"aborted"});
+    return BT::NodeStatus::SUCCESS;
+  }
+  if (ask_state->pending())
+  {
+    config().blackboard->set("mission_control", std::string{"ask"});
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  for (const auto & identity : splitCommaList(getInput<std::string>("recoverable_diagnostics").value()))
+  {
+    if (has_error(identity))
     {
       config().blackboard->set("mission_control", std::string{"pause"});
       return BT::NodeStatus::SUCCESS;

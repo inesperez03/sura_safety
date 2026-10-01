@@ -60,4 +60,11 @@ ament_export_dependencies(
   behaviortree_cpp_v3
 )
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_diagnostics test/test_diagnostics.cpp)
+  target_link_libraries(test_diagnostics ${PROJECT_NAME})
+  ament_target_dependencies(test_diagnostics rclcpp diagnostic_msgs behaviortree_cpp_v3)
+endif()
+
 ament_package()

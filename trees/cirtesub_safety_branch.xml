@@ -1,0 +1,76 @@
+<root>
+  <BehaviorTree ID="SafetyBranch">
+    <Sequence name="cirtesub_safety_branch">
+      <Fallback name="leak_safety">
+        <Sequence>
+          <SafetyCriticalError diagnostic="Sensors/LeakSensors"/>
+          <SurfaceAction robot_namespace="{robot_namespace}" target_depth="0.0" depth_tolerance="0.20" timeout="30.0" surface_force_z="-40.0"/>
+        </Sequence>
+        <SafetyOk/>
+      </Fallback>
+      <Fallback name="battery_safety">
+        <Sequence>
+          <SafetyCriticalError diagnostic="Sensors/Battery" stale_is_error="true"/>
+          <SurfaceAction robot_namespace="{robot_namespace}" target_depth="0.0" depth_tolerance="0.20" timeout="30.0" surface_force_z="-40.0"/>
+          <DeactivateSystem robot_namespace="{robot_namespace}" system="thrusters" cooldown_sec="3.0"/>
+        </Sequence>
+        <SafetyOk/>
+      </Fallback>
+      <Fallback name="surface_if_no_gps">
+        <Sequence>
+          <DiagnosticsUnavailableFor diagnostics="Sensors/GPS" seconds="10.0"/>
+          <SurfaceAction robot_namespace="{robot_namespace}" target_depth="0.0" depth_tolerance="0.20" timeout="30.0" surface_force_z="-40.0"/>
+        </Sequence>
+        <SafetyOk/>
+      </Fallback>
+      <Fallback name="localization_safety">
+        <Sequence>
+          <SafetyCriticalError diagnostic="Navigation/Frequency" stale_is_error="true"/>
+          <DeactivateControllers robot_namespace="{robot_namespace}" controllers="all" cooldown_sec="3.0"/>
+          <SetControllerInterlock robot_namespace="{robot_namespace}" enabled="true" reason="localization_stale" controllers="body_velocity,position_hold,stabilize,depth_hold"/>
+        </Sequence>
+        <Sequence>
+          <SetControllerInterlock robot_namespace="{robot_namespace}" enabled="false" reason="localization_stale"/>
+          <SafetyOk/>
+        </Sequence>
+      </Fallback>
+      <Fallback name="imu_safety">
+        <Sequence>
+          <SafetyCriticalError diagnostic="Sensors/IMU" stale_is_error="true"/>
+          <DeactivateControllers robot_namespace="{robot_namespace}" controllers="all" cooldown_sec="1.0"/>
+          <SetControllerInterlock robot_namespace="{robot_namespace}" enabled="true" reason="imu_stale" controllers="body_velocity,position_hold,stabilize,depth_hold"/>
+        </Sequence>
+        <Sequence>
+          <SetControllerInterlock robot_namespace="{robot_namespace}" enabled="false" reason="imu_stale"/>
+          <SafetyOk/>
+        </Sequence>
+      </Fallback>
+      <Fallback name="depth_safety_limit">
+        <Sequence>
+          <SafetyError diagnostic="Navigation/DepthLimit"/>
+          <SendWrench robot_namespace="{robot_namespace}" force_x="0.0" force_y="0.0" force_z="-40.0" torque_x="0.0" torque_y="0.0" torque_z="0.0" priority="85" reason="depth_limit_error"/>
+        </Sequence>
+        <SafetyWarning diagnostic="Navigation/DepthLimit"/>
+        <SafetyOk/>
+      </Fallback>
+      <Fallback name="altitude_safety_limit">
+        <Sequence>
+          <SafetyError diagnostic="Navigation/AltitudeLimit"/>
+          <SendWrench robot_namespace="{robot_namespace}" force_x="0.0" force_y="0.0" force_z="-40.0" torque_x="0.0" torque_y="0.0" torque_z="0.0" priority="85" reason="altitude_limit_error"/>
+        </Sequence>
+        <SafetyWarning diagnostic="Navigation/AltitudeLimit"/>
+        <SafetyOk/>
+      </Fallback>
+      <Fallback name="area_safety_limit">
+        <Sequence>
+          <SafetyError diagnostic="Navigation/AreaLimit"/>
+          <ComputeAreaRecoveryForce namespace="{robot_namespace}" diagnostic_name="Navigation/AreaLimit" force="40.0" output_x="{area_force_x}" output_y="{area_force_y}"/>
+          <SendWrench robot_namespace="{robot_namespace}" force_x="{area_force_x}" force_y="{area_force_y}" force_z="0.0" torque_x="0.0" torque_y="0.0" torque_z="0.0" priority="85" reason="area_limit_error"/>
+        </Sequence>
+        <SafetyWarning diagnostic="Navigation/AreaLimit"/>
+        <SafetyOk/>
+      </Fallback>
+      <UpdateMissionControlFromSafety critical_diagnostics="Sensors/LeakSensors,Sensors/Battery,Navigation/Frequency,Sensors/IMU" recoverable_diagnostics="Navigation/DepthLimit,Navigation/AltitudeLimit,Navigation/AreaLimit" stale_error_diagnostics="Sensors/Battery,Navigation/Frequency,Sensors/IMU"/>
+    </Sequence>
+  </BehaviorTree>
+</root>

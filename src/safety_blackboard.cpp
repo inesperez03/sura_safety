@@ -1,7 +1,5 @@
 #include "sura_safety/safety_blackboard.hpp"
 
-#include <algorithm>
-#include <cctype>
 #include <memory>
 
 #include "sura_safety/diagnostics_monitor.hpp"
@@ -11,18 +9,6 @@ namespace sura_safety
 {
 namespace
 {
-
-std::string toUpper(std::string text)
-{
-  std::transform(
-    text.begin(),
-    text.end(),
-    text.begin(),
-    [](unsigned char c) { return static_cast<char>(std::toupper(c)); }
-  );
-
-  return text;
-}
 
 template<typename NodeT>
 void registerNodeWithDescription(
@@ -43,6 +29,9 @@ void registerSafetyNodes(BT::BehaviorTreeFactory & factory)
   registerNodeWithDescription<SafetyCriticalError>(
     factory, "SafetyCriticalError");
 
+  registerNodeWithDescription<SafetyErrorAsk>(
+    factory, "SafetyErrorAsk");
+
   registerNodeWithDescription<SafetyWarning>(
     factory, "SafetyWarning");
 
@@ -62,23 +51,24 @@ void configureSafetyBlackboard(
   const std::string & robot_namespace,
   const std::string & diagnostics_topic)
 {
-  const std::string diagnostic_prefix = "/" + toUpper(robot_namespace);
+  const double timeout = node->has_parameter("safety.diagnostics_timeout") ?
+    node->get_parameter("safety.diagnostics_timeout").as_double() :
+    node->declare_parameter<double>("safety.diagnostics_timeout", 5.0);
 
   auto diagnostics_monitor =
     std::make_shared<DiagnosticsMonitor>(
       node,
-      diagnostics_topic);
+      diagnostics_topic, robot_namespace, timeout);
 
   blackboard->set("ros_node", node);
   blackboard->set("robot_namespace", robot_namespace);
-  blackboard->set("diagnostic_prefix", diagnostic_prefix);
   blackboard->set("diagnostics_monitor", diagnostics_monitor);
 
   RCLCPP_INFO(
     node->get_logger(),
-    "Configured sura_safety blackboard: robot_namespace='%s', diagnostic_prefix='%s'",
+    "Configured sura_safety blackboard: robot_namespace='%s', diagnostics_topic='%s'",
     robot_namespace.c_str(),
-    diagnostic_prefix.c_str());
+    diagnostics_topic.c_str());
 }
 
 void configureSafety(
