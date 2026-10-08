@@ -1,8 +1,10 @@
 #include "sura_safety/safety_diagnostic_nodes.hpp"
 #include "sura_safety/safety_ask_state.hpp"
+#include "sura_safety/critical_safety_state.hpp"
 
 #include <algorithm>
 #include <cctype>
+#include <memory>
 #include <sstream>
 #include <vector>
 
@@ -295,9 +297,20 @@ BT::NodeStatus SafetyCriticalError::tick()
   const auto diagnostic_name = requiredDiagnostic(*this);
   const auto status = monitor->getStatus(diagnostic_name);
   const bool safety_error = status && statusIsError(*status, getInput<bool>("stale_is_error").value());
+  std::shared_ptr<CriticalSafetyState> critical_state;
+  config().blackboard->get("critical_safety_state", critical_state);
 
   if (safety_error)
   {
+    if (critical_state)
+    {
+      const bool stale = status->level == diagnostic_msgs::msg::DiagnosticStatus::STALE;
+      std::string reason = "Diagnostic " + diagnostic_name +
+        (stale ? " has stopped updating." : " reports an error.");
+      const auto detail = trim(status->message);
+      if (!detail.empty() && detail != "OK") {reason += " Details: " + detail;}
+      critical_state->set(diagnostic_name, reason);
+    }
     config().blackboard->set("mission_control", std::string{"abort"});
     config().blackboard->set("mission_state", std::string{"aborted"});
 
@@ -312,6 +325,8 @@ BT::NodeStatus SafetyCriticalError::tick()
 
     return BT::NodeStatus::SUCCESS;
   }
+
+  if (critical_state) {critical_state->clear(diagnostic_name);}
 
   return BT::NodeStatus::FAILURE;
 }

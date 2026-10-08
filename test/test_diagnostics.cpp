@@ -5,6 +5,7 @@
 #include "sura_safety/diagnostics_monitor.hpp"
 #include "sura_safety/safety_blackboard.hpp"
 #include "sura_safety/safety_ask_state.hpp"
+#include "sura_safety/critical_safety_state.hpp"
 
 using diagnostic_msgs::msg::DiagnosticArray;
 using diagnostic_msgs::msg::DiagnosticStatus;
@@ -27,6 +28,8 @@ protected:
     blackboard->set("ros_node", node);
     blackboard->set("diagnostics_monitor", monitor);
     blackboard->set("safety_ask_state", std::make_shared<sura_safety::SafetyAskState>());
+    critical_state = std::make_shared<sura_safety::CriticalSafetyState>();
+    blackboard->set("critical_safety_state", critical_state);
     sura_safety::registerSafetyNodes(factory);
   }
 
@@ -60,6 +63,7 @@ protected:
 
   rclcpp::Node::SharedPtr node;
   std::shared_ptr<sura_safety::DiagnosticsMonitor> monitor;
+  std::shared_ptr<sura_safety::CriticalSafetyState> critical_state;
   rclcpp::Publisher<DiagnosticArray>::SharedPtr pub;
   rclcpp::executors::SingleThreadedExecutor executor;
   BT::Blackboard::Ptr blackboard;
@@ -110,6 +114,30 @@ TEST_F(DiagnosticsTest, ConditionsUseExplicitIdentityAndStalePolicy)
   publish({leaf("/robot_a/Sensors/IMU", DiagnosticStatus::STALE)});
   EXPECT_EQ(critical.tickRoot(), BT::NodeStatus::SUCCESS);
   EXPECT_EQ(blackboard->get<std::string>("mission_control"), "abort");
+}
+
+TEST_F(DiagnosticsTest, CriticalNavigationFailureHasAnExplanation)
+{
+  auto critical = tree(
+    "<SafetyCriticalError diagnostic=\"Navigation/Frequency\" stale_is_error=\"true\"/>");
+  publish({leaf("/robot_a/Navigation/Frequency", DiagnosticStatus::STALE)});
+  EXPECT_EQ(critical.tickRoot(), BT::NodeStatus::SUCCESS);
+  const auto incident = critical_state->first();
+  ASSERT_TRUE(incident.has_value());
+  EXPECT_EQ(incident->first, "Navigation/Frequency");
+  EXPECT_NE(incident->second.find("Navigation/Frequency ha dejado de actualizarse"),
+    std::string::npos);
+
+  publish({leaf("/robot_a/Navigation/Frequency", DiagnosticStatus::OK)});
+  EXPECT_EQ(critical.tickRoot(), BT::NodeStatus::FAILURE);
+  EXPECT_FALSE(critical_state->first().has_value());
+
+  auto imu = tree("<SafetyCriticalError diagnostic=\"Sensors/IMU\"/>");
+  publish({leaf("/robot_a/Sensors/IMU", DiagnosticStatus::ERROR)});
+  EXPECT_EQ(imu.tickRoot(), BT::NodeStatus::SUCCESS);
+  const auto second_incident = critical_state->first();
+  ASSERT_TRUE(second_incident.has_value());
+  EXPECT_NE(second_incident->second.find("Sensors/IMU indica un error"), std::string::npos);
 }
 
 TEST_F(DiagnosticsTest, SafetyErrorAskWaitsAndRearmsAfterClear)
